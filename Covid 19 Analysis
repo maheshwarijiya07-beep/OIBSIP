@@ -1,0 +1,394 @@
+# Unemployment Analysis in India - Covid-19 Impact
+# This script analyzes unemployment trends with focus on Covid-19 period
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
+
+def load_and_explore_data(filepath):
+    """Load and perform initial exploration of unemployment data"""
+    print("="*80)
+    print("UNEMPLOYMENT ANALYSIS IN INDIA - COVID-19 IMPACT")
+    print("="*80)
+    
+    # Load the dataset
+    print("\nLoading dataset...")
+    df = pd.read_csv(filepath)
+    
+    print("\n" + "="*80)
+    print("DATASET OVERVIEW")
+    print("="*80)
+    print(f"\nDataset shape: {df.shape[0]} rows, {df.shape[1]} columns")
+    print(f"\nColumn names and types:")
+    print(df.dtypes)
+    
+    print("\n" + "="*80)
+    print("FIRST 10 ROWS")
+    print("="*80)
+    print(df.head(10).to_string())
+    
+    print("\n" + "="*80)
+    print("DATASET INFO")
+    print("="*80)
+    df.info()
+    
+    print("\n" + "="*80)
+    print("MISSING VALUES")
+    print("="*80)
+    missing = df.isnull().sum()
+    if missing.sum() > 0:
+        print(missing[missing > 0])
+    else:
+        print("No missing values found!")
+    
+    print("\n" + "="*80)
+    print("STATISTICAL SUMMARY")
+    print("="*80)
+    print(df.describe().to_string())
+    
+    return df
+
+def clean_and_preprocess(df):
+    """Clean and preprocess the data"""
+    print("\n" + "="*80)
+    print("DATA CLEANING AND PREPROCESSING")
+    print("="*80)
+    
+    # Make a copy
+    df_clean = df.copy()
+    
+    # Clean column names (remove leading/trailing spaces)
+    df_clean.columns = df_clean.columns.str.strip()
+    
+    # Convert date column to datetime
+    date_columns = [col for col in df_clean.columns if 'date' in col.lower()]
+    if date_columns:
+        date_col = date_columns[0]
+        print(f"\nConverting '{date_col}' to datetime format...")
+        df_clean[date_col] = pd.to_datetime(df_clean[date_col], format='%d-%m-%Y', errors='coerce')
+        df_clean = df_clean.sort_values(date_col)
+    
+    # Handle missing values
+    numeric_cols = df_clean.select_dtypes(include=[np.number]).columns
+    if df_clean[numeric_cols].isnull().sum().sum() > 0:
+        print("\nFilling missing numeric values with column means...")
+        df_clean[numeric_cols] = df_clean[numeric_cols].fillna(df_clean[numeric_cols].mean())
+    
+    # Clean region/state names if present
+    region_cols = [col for col in df_clean.columns if 'region' in col.lower() or 'state' in col.lower()]
+    if region_cols:
+        for col in region_cols:
+            df_clean[col] = df_clean[col].str.strip()
+    
+    print("\nData cleaning complete!")
+    print(f"Clean dataset shape: {df_clean.shape}")
+    
+    return df_clean
+
+def analyze_unemployment_trends(df):
+    """Analyze overall unemployment trends"""
+    print("\n" + "="*80)
+    print("UNEMPLOYMENT TRENDS ANALYSIS")
+    print("="*80)
+    
+    # Find unemployment rate column
+    unemp_cols = [col for col in df.columns if 'unemploy' in col.lower() and 'rate' in col.lower()]
+    if not unemp_cols:
+        unemp_cols = [col for col in df.columns if 'unemploy' in col.lower()]
+    
+    if unemp_cols:
+        unemp_col = unemp_cols[0]
+        print(f"\nAnalyzing: {unemp_col}")
+        
+        print("\nOverall Statistics:")
+        print(f"  Mean unemployment rate: {df[unemp_col].mean():.2f}%")
+        print(f"  Median unemployment rate: {df[unemp_col].median():.2f}%")
+        print(f"  Minimum unemployment rate: {df[unemp_col].min():.2f}%")
+        print(f"  Maximum unemployment rate: {df[unemp_col].max():.2f}%")
+        print(f"  Standard deviation: {df[unemp_col].std():.2f}%")
+        
+        return unemp_col
+    
+    return None
+
+def covid_impact_analysis(df, date_col, unemp_col):
+    """Analyze Covid-19 impact on unemployment"""
+    print("\n" + "="*80)
+    print("COVID-19 IMPACT ANALYSIS")
+    print("="*80)
+    
+    # Define Covid-19 periods
+    # Pre-Covid: Before March 2020
+    # Covid Wave 1: March 2020 - December 2020
+    # Covid Wave 2: January 2021 - June 2021
+    # Post-Covid: After June 2021
+    
+    covid_start = pd.to_datetime('2020-03-01')
+    wave1_end = pd.to_datetime('2020-12-31')
+    wave2_end = pd.to_datetime('2021-06-30')
+    
+    # Create period labels
+    df['Period'] = 'Unknown'
+    df.loc[df[date_col] < covid_start, 'Period'] = 'Pre-Covid'
+    df.loc[(df[date_col] >= covid_start) & (df[date_col] <= wave1_end), 'Period'] = 'Covid Wave 1'
+    df.loc[(df[date_col] > wave1_end) & (df[date_col] <= wave2_end), 'Period'] = 'Covid Wave 2'
+    df.loc[df[date_col] > wave2_end, 'Period'] = 'Post-Covid'
+    
+    print("\nUnemployment Rate by Period:")
+    period_stats = df.groupby('Period')[unemp_col].agg(['mean', 'median', 'min', 'max', 'std'])
+    print(period_stats.to_string())
+    
+    # Calculate percentage change
+    if 'Pre-Covid' in df['Period'].values:
+        pre_covid_avg = df[df['Period'] == 'Pre-Covid'][unemp_col].mean()
+        if 'Covid Wave 1' in df['Period'].values:
+            wave1_avg = df[df['Period'] == 'Covid Wave 1'][unemp_col].mean()
+            change = ((wave1_avg - pre_covid_avg) / pre_covid_avg) * 100
+            print(f"\n📊 Key Finding:")
+            print(f"  Unemployment increased by {change:.2f}% during Covid Wave 1")
+            print(f"  From {pre_covid_avg:.2f}% to {wave1_avg:.2f}%")
+    
+    return df
+
+def regional_analysis(df, unemp_col):
+    """Analyze unemployment by region/state"""
+    print("\n" + "="*80)
+    print("REGIONAL ANALYSIS")
+    print("="*80)
+    
+    region_cols = [col for col in df.columns if 'region' in col.lower() or 'state' in col.lower() or 'area' in col.lower()]
+    
+    if region_cols:
+        region_col = region_cols[0]
+        print(f"\nAnalyzing by: {region_col}")
+        
+        regional_stats = df.groupby(region_col)[unemp_col].agg(['mean', 'min', 'max', 'count'])
+        regional_stats = regional_stats.sort_values('mean', ascending=False)
+        
+        print("\nTop 10 Regions with Highest Average Unemployment:")
+        print(regional_stats.head(10).to_string())
+        
+        print("\nTop 10 Regions with Lowest Average Unemployment:")
+        print(regional_stats.tail(10).to_string())
+        
+        return region_col
+    
+    return None
+
+def visualize_trends(df, date_col, unemp_col):
+    """Create visualizations for unemployment trends"""
+    print("\n" + "="*80)
+    print("GENERATING VISUALIZATIONS")
+    print("="*80)
+    
+    # Set style
+    plt.style.use('seaborn-v0_8-darkgrid')
+    sns.set_palette("husl")
+    
+    # Figure 1: Time series of unemployment rate
+    fig, ax = plt.subplots(figsize=(14, 6))
+    
+    df_sorted = df.sort_values(date_col)
+    ax.plot(df_sorted[date_col], df_sorted[unemp_col], linewidth=2, color='#2E86AB')
+    
+    # Mark Covid-19 start
+    covid_start = pd.to_datetime('2020-03-01')
+    ax.axvline(x=covid_start, color='red', linestyle='--', linewidth=2, label='Covid-19 Start (March 2020)')
+    
+    ax.set_xlabel('Date', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Unemployment Rate (%)', fontsize=12, fontweight='bold')
+    ax.set_title('Unemployment Rate Over Time - India', fontsize=14, fontweight='bold')
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig('unemployment_trend.png', dpi=300, bbox_inches='tight')
+    print("✓ Saved: unemployment_trend.png")
+    
+    # Figure 2: Period comparison
+    if 'Period' in df.columns:
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        period_order = ['Pre-Covid', 'Covid Wave 1', 'Covid Wave 2', 'Post-Covid']
+        period_data = df[df['Period'].isin(period_order)]
+        
+        sns.boxplot(data=period_data, x='Period', y=unemp_col, order=period_order, ax=ax)
+        ax.set_xlabel('Period', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Unemployment Rate (%)', fontsize=12, fontweight='bold')
+        ax.set_title('Unemployment Rate Distribution by Period', fontsize=14, fontweight='bold')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.savefig('period_comparison.png', dpi=300, bbox_inches='tight')
+        print("✓ Saved: period_comparison.png")
+    
+    # Figure 3: Monthly average trend
+    df_sorted['Year-Month'] = df_sorted[date_col].dt.to_period('M')
+    monthly_avg = df_sorted.groupby('Year-Month')[unemp_col].mean()
+    
+    fig, ax = plt.subplots(figsize=(14, 6))
+    monthly_avg.plot(ax=ax, linewidth=2, marker='o', markersize=4, color='#A23B72')
+    ax.axvline(x=pd.Period('2020-03', 'M'), color='red', linestyle='--', linewidth=2, label='Covid-19 Start')
+    ax.set_xlabel('Month', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Average Unemployment Rate (%)', fontsize=12, fontweight='bold')
+    ax.set_title('Monthly Average Unemployment Rate', fontsize=14, fontweight='bold')
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig('monthly_trend.png', dpi=300, bbox_inches='tight')
+    print("✓ Saved: monthly_trend.png")
+
+def visualize_regional(df, region_col, unemp_col):
+    """Create regional visualizations"""
+    if region_col is None:
+        return
+    
+    # Top 15 states by average unemployment
+    regional_avg = df.groupby(region_col)[unemp_col].mean().sort_values(ascending=False).head(15)
+    
+    fig, ax = plt.subplots(figsize=(12, 8))
+    regional_avg.plot(kind='barh', ax=ax, color='#F18F01')
+    ax.set_xlabel('Average Unemployment Rate (%)', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Region/State', fontsize=12, fontweight='bold')
+    ax.set_title('Top 15 Regions by Average Unemployment Rate', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig('regional_comparison.png', dpi=300, bbox_inches='tight')
+    print("✓ Saved: regional_comparison.png")
+
+def correlation_analysis(df):
+    """Analyze correlations between variables"""
+    print("\n" + "="*80)
+    print("CORRELATION ANALYSIS")
+    print("="*80)
+    
+    # Select numeric columns
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    
+    if len(numeric_cols) > 1:
+        correlation = df[numeric_cols].corr()
+        
+        print("\nCorrelation Matrix:")
+        print(correlation.to_string())
+        
+        # Visualize correlation
+        fig, ax = plt.subplots(figsize=(10, 8))
+        sns.heatmap(correlation, annot=True, fmt='.2f', cmap='coolwarm', 
+                    center=0, square=True, linewidths=1, ax=ax)
+        ax.set_title('Correlation Matrix - Unemployment Indicators', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        plt.savefig('correlation_matrix.png', dpi=300, bbox_inches='tight')
+        print("\n✓ Saved: correlation_matrix.png")
+
+def generate_insights(df, unemp_col):
+    """Generate key insights from the analysis"""
+    print("\n" + "="*80)
+    print("KEY INSIGHTS AND FINDINGS")
+    print("="*80)
+    
+    insights = []
+    
+    # Overall trend
+    if 'Period' in df.columns:
+        period_means = df.groupby('Period')[unemp_col].mean()
+        
+        if 'Pre-Covid' in period_means.index and 'Covid Wave 1' in period_means.index:
+            pre_covid = period_means['Pre-Covid']
+            wave1 = period_means['Covid Wave 1']
+            increase = wave1 - pre_covid
+            pct_increase = (increase / pre_covid) * 100
+            
+            insights.append(f"1. Sharp Increase During Covid-19:")
+            insights.append(f"   - Pre-Covid average: {pre_covid:.2f}%")
+            insights.append(f"   - Covid Wave 1 peak: {wave1:.2f}%")
+            insights.append(f"   - Absolute increase: {increase:.2f} percentage points")
+            insights.append(f"   - Relative increase: {pct_increase:.2f}%")
+    
+    # Maximum unemployment
+    max_unemp = df[unemp_col].max()
+    max_date_idx = df[unemp_col].idxmax()
+    date_col = [col for col in df.columns if 'date' in col.lower()][0]
+    max_date = df.loc[max_date_idx, date_col]
+    
+    insights.append(f"\n2. Peak Unemployment:")
+    insights.append(f"   - Highest rate: {max_unemp:.2f}%")
+    insights.append(f"   - Occurred on: {max_date}")
+    
+    # Recent trend
+    recent_data = df.sort_values(date_col).tail(30)
+    recent_avg = recent_data[unemp_col].mean()
+    overall_avg = df[unemp_col].mean()
+    
+    insights.append(f"\n3. Recent Trends (Last 30 records):")
+    insights.append(f"   - Recent average: {recent_avg:.2f}%")
+    insights.append(f"   - Overall average: {overall_avg:.2f}%")
+    if recent_avg < overall_avg:
+        insights.append(f"   - ✓ Recovery trend: {overall_avg - recent_avg:.2f} percentage points below overall average")
+    else:
+        insights.append(f"   - ⚠ Still elevated: {recent_avg - overall_avg:.2f} percentage points above overall average")
+    
+    for insight in insights:
+        print(insight)
+
+def main():
+    """Main function to run the complete analysis"""
+    
+    # File path - update this to your file location
+    filepath = 'Unemployment_in_India.csv'  # Update this path
+    
+    try:
+        # Load and explore data
+        df = load_and_explore_data(filepath)
+        
+        # Clean and preprocess
+        df = clean_and_preprocess(df)
+        
+        # Find key columns
+        date_col = [col for col in df.columns if 'date' in col.lower()][0]
+        unemp_col = analyze_unemployment_trends(df)
+        
+        if unemp_col is None:
+            print("\nError: Could not find unemployment rate column!")
+            return
+        
+        # Covid impact analysis
+        df = covid_impact_analysis(df, date_col, unemp_col)
+        
+        # Regional analysis
+        region_col = regional_analysis(df, unemp_col)
+        
+        # Correlation analysis
+        correlation_analysis(df)
+        
+        # Visualizations
+        visualize_trends(df, date_col, unemp_col)
+        if region_col:
+            visualize_regional(df, region_col, unemp_col)
+        
+        # Generate insights
+        generate_insights(df, unemp_col)
+        
+        print("\n" + "="*80)
+        print("ANALYSIS COMPLETE!")
+        print("="*80)
+        print("\nGenerated files:")
+        print("  - unemployment_trend.png")
+        print("  - period_comparison.png")
+        print("  - monthly_trend.png")
+        print("  - correlation_matrix.png")
+        if region_col:
+            print("  - regional_comparison.png")
+        
+    except FileNotFoundError:
+        print(f"\n❌ Error: File '{filepath}' not found!")
+        print("Please update the filepath variable with the correct path to your CSV file.")
+    except Exception as e:
+        print(f"\n❌ Error occurred: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    main()
