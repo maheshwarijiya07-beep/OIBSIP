@@ -1,0 +1,498 @@
+# Car Price Prediction with Machine Learning
+# This script predicts used car prices based on various features
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import warnings
+warnings.filterwarnings('ignore')
+
+def load_and_explore_data(filepath):
+    """Load and explore the car price dataset"""
+    print("="*80)
+    print("CAR PRICE PREDICTION - MACHINE LEARNING PROJECT")
+    print("="*80)
+    
+    print("\nLoading dataset...")
+    df = pd.read_csv(filepath)
+    
+    print("\n" + "="*80)
+    print("DATASET OVERVIEW")
+    print("="*80)
+    print(f"\nDataset shape: {df.shape[0]} rows, {df.shape[1]} columns")
+    
+    print("\n" + "="*80)
+    print("COLUMN INFORMATION")
+    print("="*80)
+    print(df.dtypes)
+    
+    print("\n" + "="*80)
+    print("FIRST 10 ROWS")
+    print("="*80)
+    print(df.head(10).to_string())
+    
+    print("\n" + "="*80)
+    print("MISSING VALUES")
+    print("="*80)
+    missing = df.isnull().sum()
+    if missing.sum() > 0:
+        print(missing[missing > 0])
+        print(f"\nTotal missing values: {missing.sum()}")
+    else:
+        print("No missing values found!")
+    
+    print("\n" + "="*80)
+    print("STATISTICAL SUMMARY")
+    print("="*80)
+    print(df.describe().to_string())
+    
+    print("\n" + "="*80)
+    print("UNIQUE VALUES IN CATEGORICAL COLUMNS")
+    print("="*80)
+    categorical_cols = df.select_dtypes(include=['object']).columns
+    for col in categorical_cols:
+        print(f"\n{col}: {df[col].nunique()} unique values")
+        if df[col].nunique() <= 10:
+            print(f"  Values: {df[col].unique()}")
+    
+    return df
+
+def clean_and_preprocess(df):
+    """Clean and preprocess the data"""
+    print("\n" + "="*80)
+    print("DATA CLEANING AND PREPROCESSING")
+    print("="*80)
+    
+    df_clean = df.copy()
+    
+    # Clean column names
+    df_clean.columns = df_clean.columns.str.strip().str.lower().str.replace(' ', '_')
+    
+    print("\nCleaned column names:")
+    print(list(df_clean.columns))
+    
+    # Handle missing values
+    print("\nHandling missing values...")
+    
+    # For numeric columns, fill with median
+    numeric_cols = df_clean.select_dtypes(include=[np.number]).columns
+    for col in numeric_cols:
+        if df_clean[col].isnull().sum() > 0:
+            df_clean[col].fillna(df_clean[col].median(), inplace=True)
+            print(f"  Filled {col} with median")
+    
+    # For categorical columns, fill with mode
+    categorical_cols = df_clean.select_dtypes(include=['object']).columns
+    for col in categorical_cols:
+        if df_clean[col].isnull().sum() > 0:
+            df_clean[col].fillna(df_clean[col].mode()[0], inplace=True)
+            print(f"  Filled {col} with mode")
+    
+    # Remove duplicates
+    before = len(df_clean)
+    df_clean = df_clean.drop_duplicates()
+    after = len(df_clean)
+    if before > after:
+        print(f"\nRemoved {before - after} duplicate rows")
+    
+    print(f"\nFinal dataset shape: {df_clean.shape}")
+    
+    return df_clean
+
+def exploratory_analysis(df):
+    """Perform exploratory data analysis"""
+    print("\n" + "="*80)
+    print("EXPLORATORY DATA ANALYSIS")
+    print("="*80)
+    
+    # Find price column
+    price_cols = [col for col in df.columns if 'price' in col.lower() or 'cost' in col.lower()]
+    if price_cols:
+        price_col = price_cols[0]
+        print(f"\nTarget variable: {price_col}")
+        print(f"\nPrice Statistics:")
+        print(f"  Mean: ${df[price_col].mean():,.2f}")
+        print(f"  Median: ${df[price_col].median():,.2f}")
+        print(f"  Min: ${df[price_col].min():,.2f}")
+        print(f"  Max: ${df[price_col].max():,.2f}")
+        print(f"  Std Dev: ${df[price_col].std():,.2f}")
+        
+        return price_col
+    
+    return None
+
+def visualize_data(df, price_col):
+    """Create visualizations"""
+    print("\n" + "="*80)
+    print("GENERATING VISUALIZATIONS")
+    print("="*80)
+    
+    plt.style.use('seaborn-v0_8-darkgrid')
+    
+    # Figure 1: Price distribution
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Histogram
+    axes[0].hist(df[price_col], bins=50, color='#3498db', edgecolor='black', alpha=0.7)
+    axes[0].set_xlabel('Price ($)', fontsize=12, fontweight='bold')
+    axes[0].set_ylabel('Frequency', fontsize=12, fontweight='bold')
+    axes[0].set_title('Price Distribution', fontsize=14, fontweight='bold')
+    axes[0].grid(True, alpha=0.3)
+    
+    # Box plot
+    axes[1].boxplot(df[price_col], vert=True, patch_artist=True,
+                    boxprops=dict(facecolor='#3498db', alpha=0.7),
+                    medianprops=dict(color='red', linewidth=2))
+    axes[1].set_ylabel('Price ($)', fontsize=12, fontweight='bold')
+    axes[1].set_title('Price Box Plot', fontsize=14, fontweight='bold')
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('price_distribution.png', dpi=300, bbox_inches='tight')
+    print("✓ Saved: price_distribution.png")
+    
+    # Figure 2: Correlation heatmap
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    if len(numeric_cols) > 1:
+        fig, ax = plt.subplots(figsize=(12, 8))
+        correlation = df[numeric_cols].corr()
+        sns.heatmap(correlation, annot=True, fmt='.2f', cmap='coolwarm',
+                   center=0, square=True, linewidths=1, ax=ax, cbar_kws={"shrink": 0.8})
+        ax.set_title('Feature Correlation Matrix', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        plt.savefig('correlation_matrix.png', dpi=300, bbox_inches='tight')
+        print("✓ Saved: correlation_matrix.png")
+    
+    # Figure 3: Price by categorical features
+    categorical_cols = df.select_dtypes(include=['object']).columns
+    if len(categorical_cols) > 0:
+        # Select up to 4 categorical columns with reasonable unique values
+        plot_cols = [col for col in categorical_cols if df[col].nunique() <= 20][:4]
+        
+        if plot_cols:
+            n_plots = len(plot_cols)
+            fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+            axes = axes.flatten()
+            
+            for idx, col in enumerate(plot_cols):
+                avg_price = df.groupby(col)[price_col].mean().sort_values(ascending=False).head(10)
+                avg_price.plot(kind='barh', ax=axes[idx], color='#e74c3c')
+                axes[idx].set_xlabel('Average Price ($)', fontsize=10, fontweight='bold')
+                axes[idx].set_ylabel(col.replace('_', ' ').title(), fontsize=10, fontweight='bold')
+                axes[idx].set_title(f'Price by {col.replace("_", " ").title()}', fontsize=12, fontweight='bold')
+                axes[idx].grid(True, alpha=0.3)
+            
+            # Hide unused subplots
+            for idx in range(len(plot_cols), 4):
+                axes[idx].axis('off')
+            
+            plt.tight_layout()
+            plt.savefig('price_by_categories.png', dpi=300, bbox_inches='tight')
+            print("✓ Saved: price_by_categories.png")
+
+def prepare_features(df, price_col):
+    """Prepare features for modeling"""
+    print("\n" + "="*80)
+    print("FEATURE ENGINEERING")
+    print("="*80)
+    
+    df_model = df.copy()
+    
+    # Separate features and target
+    X = df_model.drop(columns=[price_col])
+    y = df_model[price_col]
+    
+    # Encode categorical variables
+    label_encoders = {}
+    categorical_cols = X.select_dtypes(include=['object']).columns
+    
+    print("\nEncoding categorical variables:")
+    for col in categorical_cols:
+        le = LabelEncoder()
+        X[col] = le.fit_transform(X[col].astype(str))
+        label_encoders[col] = le
+        print(f"  ✓ Encoded {col}")
+    
+    print(f"\nFinal feature set: {X.shape[1]} features")
+    print(f"Feature names: {list(X.columns)}")
+    
+    return X, y, label_encoders
+
+def train_models(X, y):
+    """Train multiple models and compare performance"""
+    print("\n" + "="*80)
+    print("MODEL TRAINING AND EVALUATION")
+    print("="*80)
+    
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+    
+    print(f"\nTraining set: {len(X_train)} samples")
+    print(f"Testing set: {len(X_test)} samples")
+    
+    # Scale features
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    
+    # Define models
+    models = {
+        'Linear Regression': LinearRegression(),
+        'Ridge Regression': Ridge(alpha=10),
+        'Lasso Regression': Lasso(alpha=10),
+        'Decision Tree': DecisionTreeRegressor(max_depth=10, random_state=42),
+        'Random Forest': RandomForestRegressor(n_estimators=100, max_depth=15, random_state=42, n_jobs=-1),
+        'Gradient Boosting': GradientBoostingRegressor(n_estimators=100, max_depth=5, random_state=42)
+    }
+    
+    results = {}
+    
+    print("\nTraining models...")
+    print("-" * 80)
+    
+    for name, model in models.items():
+        print(f"\nTraining {name}...")
+        
+        # Use scaled data for linear models, original for tree-based
+        if name in ['Linear Regression', 'Ridge Regression', 'Lasso Regression']:
+            model.fit(X_train_scaled, y_train)
+            y_pred = model.predict(X_test_scaled)
+        else:
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+        
+        # Calculate metrics
+        mae = mean_absolute_error(y_test, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+        r2 = r2_score(y_test, y_pred)
+        mape = np.mean(np.abs((y_test - y_pred) / y_test)) * 100
+        
+        results[name] = {
+            'model': model,
+            'predictions': y_pred,
+            'mae': mae,
+            'rmse': rmse,
+            'r2': r2,
+            'mape': mape,
+            'scaled': name in ['Linear Regression', 'Ridge Regression', 'Lasso Regression']
+        }
+        
+        print(f"  MAE: ${mae:,.2f}")
+        print(f"  RMSE: ${rmse:,.2f}")
+        print(f"  R² Score: {r2:.4f}")
+        print(f"  MAPE: {mape:.2f}%")
+    
+    return results, X_train, X_test, y_train, y_test, scaler
+
+def compare_models(results):
+    """Compare model performance"""
+    print("\n" + "="*80)
+    print("MODEL COMPARISON")
+    print("="*80)
+    
+    comparison_df = pd.DataFrame({
+        'Model': list(results.keys()),
+        'MAE': [results[m]['mae'] for m in results],
+        'RMSE': [results[m]['rmse'] for m in results],
+        'R² Score': [results[m]['r2'] for m in results],
+        'MAPE (%)': [results[m]['mape'] for m in results]
+    })
+    
+    comparison_df = comparison_df.sort_values('R² Score', ascending=False)
+    print("\n" + comparison_df.to_string(index=False))
+    
+    # Find best model
+    best_model_name = comparison_df.iloc[0]['Model']
+    best_r2 = comparison_df.iloc[0]['R² Score']
+    
+    print(f"\n{'*'*80}")
+    print(f"BEST MODEL: {best_model_name}")
+    print(f"R² Score: {best_r2:.4f} ({best_r2*100:.2f}% variance explained)")
+    print(f"{'*'*80}")
+    
+    # Visualize comparison
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    
+    # R² Score
+    comparison_df.plot(x='Model', y='R² Score', kind='barh', ax=axes[0, 0], color='#2ecc71', legend=False)
+    axes[0, 0].set_xlabel('R² Score', fontsize=10, fontweight='bold')
+    axes[0, 0].set_title('R² Score Comparison', fontsize=12, fontweight='bold')
+    axes[0, 0].grid(True, alpha=0.3)
+    
+    # MAE
+    comparison_df.plot(x='Model', y='MAE', kind='barh', ax=axes[0, 1], color='#e74c3c', legend=False)
+    axes[0, 1].set_xlabel('MAE ($)', fontsize=10, fontweight='bold')
+    axes[0, 1].set_title('Mean Absolute Error', fontsize=12, fontweight='bold')
+    axes[0, 1].grid(True, alpha=0.3)
+    
+    # RMSE
+    comparison_df.plot(x='Model', y='RMSE', kind='barh', ax=axes[1, 0], color='#3498db', legend=False)
+    axes[1, 0].set_xlabel('RMSE ($)', fontsize=10, fontweight='bold')
+    axes[1, 0].set_title('Root Mean Squared Error', fontsize=12, fontweight='bold')
+    axes[1, 0].grid(True, alpha=0.3)
+    
+    # MAPE
+    comparison_df.plot(x='Model', y='MAPE (%)', kind='barh', ax=axes[1, 1], color='#f39c12', legend=False)
+    axes[1, 1].set_xlabel('MAPE (%)', fontsize=10, fontweight='bold')
+    axes[1, 1].set_title('Mean Absolute Percentage Error', fontsize=12, fontweight='bold')
+    axes[1, 1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('model_comparison.png', dpi=300, bbox_inches='tight')
+    print("\n✓ Saved: model_comparison.png")
+    
+    return best_model_name
+
+def feature_importance_analysis(results, X, best_model_name):
+    """Analyze feature importance"""
+    print("\n" + "="*80)
+    print("FEATURE IMPORTANCE ANALYSIS")
+    print("="*80)
+    
+    best_model = results[best_model_name]['model']
+    
+    # Get feature importance (works for tree-based models)
+    if hasattr(best_model, 'feature_importances_'):
+        importance = best_model.feature_importances_
+        feature_importance = pd.DataFrame({
+            'Feature': X.columns,
+            'Importance': importance
+        }).sort_values('Importance', ascending=False)
+        
+        print(f"\nFeature Importance ({best_model_name}):")
+        print(feature_importance.to_string(index=False))
+        
+        # Visualize top 15 features
+        top_features = feature_importance.head(15)
+        
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.barh(top_features['Feature'], top_features['Importance'], color='#9b59b6')
+        ax.set_xlabel('Importance', fontsize=12, fontweight='bold')
+        ax.set_ylabel('Feature', fontsize=12, fontweight='bold')
+        ax.set_title(f'Top 15 Feature Importance - {best_model_name}', fontsize=14, fontweight='bold')
+        ax.invert_yaxis()
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig('feature_importance.png', dpi=300, bbox_inches='tight')
+        print("\n✓ Saved: feature_importance.png")
+
+def prediction_analysis(results, y_test, best_model_name):
+    """Analyze predictions vs actual values"""
+    print("\n" + "="*80)
+    print("PREDICTION ANALYSIS")
+    print("="*80)
+    
+    y_pred = results[best_model_name]['predictions']
+    
+    # Create prediction vs actual plot
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    
+    # Scatter plot
+    axes[0].scatter(y_test, y_pred, alpha=0.5, color='#3498db')
+    axes[0].plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 
+                 'r--', linewidth=2, label='Perfect Prediction')
+    axes[0].set_xlabel('Actual Price ($)', fontsize=12, fontweight='bold')
+    axes[0].set_ylabel('Predicted Price ($)', fontsize=12, fontweight='bold')
+    axes[0].set_title('Actual vs Predicted Prices', fontsize=14, fontweight='bold')
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+    
+    # Residual plot
+    residuals = y_test - y_pred
+    axes[1].scatter(y_pred, residuals, alpha=0.5, color='#e74c3c')
+    axes[1].axhline(y=0, color='black', linestyle='--', linewidth=2)
+    axes[1].set_xlabel('Predicted Price ($)', fontsize=12, fontweight='bold')
+    axes[1].set_ylabel('Residuals ($)', fontsize=12, fontweight='bold')
+    axes[1].set_title('Residual Plot', fontsize=14, fontweight='bold')
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('prediction_analysis.png', dpi=300, bbox_inches='tight')
+    print("\n✓ Saved: prediction_analysis.png")
+    
+    # Show sample predictions
+    print("\n" + "="*80)
+    print("SAMPLE PREDICTIONS")
+    print("="*80)
+    print(f"\n{'Actual Price':<20} {'Predicted Price':<20} {'Difference':<20} {'Error %'}")
+    print("-" * 80)
+    
+    sample_indices = np.random.choice(len(y_test), min(10, len(y_test)), replace=False)
+    y_test_array = y_test.values if hasattr(y_test, 'values') else y_test
+    
+    for idx in sample_indices:
+        actual = y_test_array[idx]
+        predicted = y_pred[idx]
+        diff = actual - predicted
+        error_pct = (abs(diff) / actual) * 100
+        print(f"${actual:,.2f}{'':<12} ${predicted:,.2f}{'':<12} ${diff:,.2f}{'':<12} {error_pct:.2f}%")
+
+def main():
+    """Main function to run the complete analysis"""
+    
+    # File path - update this
+    filepath = 'car_data.csv'  # Update with your file path
+    
+    try:
+        # Load and explore
+        df = load_and_explore_data(filepath)
+        
+        # Clean and preprocess
+        df = clean_and_preprocess(df)
+        
+        # Exploratory analysis
+        price_col = exploratory_analysis(df)
+        
+        if price_col is None:
+            print("\n❌ Error: Could not find price column!")
+            return
+        
+        # Visualizations
+        visualize_data(df, price_col)
+        
+        # Prepare features
+        X, y, label_encoders = prepare_features(df, price_col)
+        
+        # Train models
+        results, X_train, X_test, y_train, y_test, scaler = train_models(X, y)
+        
+        # Compare models
+        best_model_name = compare_models(results)
+        
+        # Feature importance
+        feature_importance_analysis(results, X, best_model_name)
+        
+        # Prediction analysis
+        prediction_analysis(results, y_test, best_model_name)
+        
+        print("\n" + "="*80)
+        print("ANALYSIS COMPLETE!")
+        print("="*80)
+        print("\nGenerated files:")
+        print("  - price_distribution.png")
+        print("  - correlation_matrix.png")
+        print("  - price_by_categories.png")
+        print("  - model_comparison.png")
+        print("  - feature_importance.png")
+        print("  - prediction_analysis.png")
+        
+    except FileNotFoundError:
+        print(f"\n❌ Error: File '{filepath}' not found!")
+        print("Please download the dataset from Kaggle and update the filepath.")
+        print("Dataset: https://www.kaggle.com/datasets/vijayaadithyanvg/car-price-predictionused-cars")
+    except Exception as e:
+        print(f"\n❌ Error occurred: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    main()
